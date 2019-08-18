@@ -1,9 +1,11 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Windows.Markup;
 using System.Xml;
+using Library;
 
 namespace XamlLoad
 {
@@ -12,17 +14,16 @@ namespace XamlLoad
         [STAThread]
         public static void Main()
         {
-            var forceOtherAssemblyIntoDefaultContext = typeof(Library.Properties) != null;
-            var onlyIsolateOurAssemblies = false;
+            // force the Library assembly into the current context/app domain;
+            Debug.Assert(typeof(Properties) != null);
 
-            var crash = forceOtherAssemblyIntoDefaultContext && !onlyIsolateOurAssemblies;
-            var cxt = crash
-                ? (AssemblyLoadContext)new LoadAllAssembliesContext()
-                : new LoadOnlyOurAssembliesContext();
-
+            var cxt = new LoadAllAssembliesContext();
             var assembly = cxt.LoadFromAssemblyPath(typeof(Program).Assembly.Location);
             var type = assembly.GetType(typeof(Program).FullName);
-            type.GetMethod(nameof(Program.DoXamlLoad)).Invoke(null, null);
+            using (cxt.EnterContextualReflection())
+            {
+                type.GetMethod(nameof(Program.DoXamlLoad)).Invoke(null, null);
+            }
         }
 
         public static void DoXamlLoad()
@@ -51,24 +52,10 @@ namespace XamlLoad
 
         protected override Assembly Load(AssemblyName assemblyName)
         {
-            var assembly = Assembly.Load(assemblyName);
-            return LoadFromAssemblyPath(assembly.Location);
-        }
-    }
-
-    public sealed class LoadOnlyOurAssembliesContext : AssemblyLoadContext
-    {
-        public LoadOnlyOurAssembliesContext() { }
-
-        protected override Assembly Load(AssemblyName assemblyName)
-        {
-            if (assemblyName.Name == "XamlLoad" || assemblyName.Name == "Library")
-            {
-                var assemblyInDefaultContext = Assembly.Load(assemblyName);
-                var assemblyInThisContext = LoadFromAssemblyPath(assemblyInDefaultContext.Location);
-                return assemblyInThisContext;
-            }
-            return null;
+            var assemblyInDefaultContext = Default.LoadFromAssemblyName(assemblyName);
+            var location = assemblyInDefaultContext.Location;
+            var assemblyInThisContext = LoadFromAssemblyPath(location);
+            return assemblyInThisContext;
         }
     }
 }
